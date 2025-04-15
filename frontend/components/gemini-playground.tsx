@@ -6,7 +6,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { base64ToFloat32Array, float32ToPcm16 } from '@/lib/utils';
@@ -18,20 +17,21 @@ interface Config {
   allowInterruptions: boolean;
 }
 
-export default function GeminiVoiceChat() {
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [error, setError] = useState(null);
-  const [text, setText] = useState('');
+export default function NutriChatRealtime() {
+  // Configuração fixa do systemPrompt para um nutricionista brasileiro altamente graduado
   const [config, setConfig] = useState<Config>({
-    systemPrompt: "You are a friendly Gemini 2.0 model. Respond verbally in a casual, helpful tone.",
+    systemPrompt: "Você é um nutricionista brasileiro altamente graduado, com ampla experiência em nutrição clínica e esportiva. Forneça conselhos nutricionais precisos, baseados em evidências científicas e adaptados à realidade do Brasil. Seja cordial, objetivo e engajado, ajudando o paciente a alcançar uma vida mais saudável.",
     voice: "Puck",
     googleSearch: true,
-    allowInterruptions: false
+    allowInterruptions: false,
   });
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [text, setText] = useState('');
   const [isConnected, setIsConnected] = useState(false);
-  const wsRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const audioInputRef = useRef(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioInputRef = useRef<any>(null);
   const clientId = useRef(crypto.randomUUID());
   const [videoEnabled, setVideoEnabled] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -42,30 +42,25 @@ export default function GeminiVoiceChat() {
   const [videoSource, setVideoSource] = useState<'camera' | 'screen' | null>(null);
 
   const voices = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"];
-  let audioBuffer = []
-  let isPlaying = false
+  let audioBuffer: Float32Array[] = [];
+  let isPlaying = false;
 
   const startStream = async (mode: 'audio' | 'camera' | 'screen') => {
-
-    if (mode !== 'audio') {
-      setChatMode('video');
-    } else {
-      setChatMode('audio');
-    }
+    setChatMode(mode === 'audio' ? 'audio' : 'video');
 
     wsRef.current = new WebSocket(`ws://localhost:8000/ws/${clientId.current}`);
     
     wsRef.current.onopen = async () => {
-      wsRef.current.send(JSON.stringify({
+      wsRef.current?.send(JSON.stringify({
         type: 'config',
-        config: config
+        config: config,
       }));
       
       await startAudioStream();
 
       if (mode !== 'audio') {
         setVideoEnabled(true);
-        setVideoSource(mode)
+        setVideoSource(mode);
       }
 
       setIsStreaming(true);
@@ -82,8 +77,8 @@ export default function GeminiVoiceChat() {
       }
     };
 
-    wsRef.current.onerror = (error) => {
-      setError('WebSocket error: ' + error.message);
+    wsRef.current.onerror = (err: any) => {
+      setError('Erro no WebSocket: ' + err.message);
       setIsStreaming(false);
     };
 
@@ -92,31 +87,26 @@ export default function GeminiVoiceChat() {
     };
   };
 
-  // Initialize audio context and stream
+  // Inicializa o stream de áudio
   const startAudioStream = async () => {
     try {
-      // Initialize audio context
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({
-        sampleRate: 16000 // Required by Gemini
+        sampleRate: 16000 // Necessário para o Gemini
       });
 
-      // Get microphone stream
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Create audio input node
       const source = audioContextRef.current.createMediaStreamSource(stream);
       const processor = audioContextRef.current.createScriptProcessor(512, 1, 1);
       
       processor.onaudioprocess = (e) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-            const inputData = e.inputBuffer.getChannelData(0);
-            const pcmData = float32ToPcm16(inputData);
-            // Convert to base64 and send as binary
-            const base64Data = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
-            wsRef.current.send(JSON.stringify({
-              type: 'audio',
-              data: base64Data
-            }));
+          const inputData = e.inputBuffer.getChannelData(0);
+          const pcmData = float32ToPcm16(inputData);
+          const base64Data = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
+          wsRef.current.send(JSON.stringify({
+            type: 'audio',
+            data: base64Data
+          }));
         }
       };
 
@@ -125,25 +115,24 @@ export default function GeminiVoiceChat() {
       
       audioInputRef.current = { source, processor, stream };
       setIsStreaming(true);
-    } catch (err) {
-      setError('Failed to access microphone: ' + err.message);
+    } catch (err: any) {
+      setError('Erro ao acessar o microfone: ' + err.message);
     }
   };
 
-  // Stop streaming
+  // Para o streaming
   const stopStream = () => {
     if (audioInputRef.current) {
       const { source, processor, stream } = audioInputRef.current;
       source.disconnect();
       processor.disconnect();
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
       audioInputRef.current = null;
     }
 
     if (chatMode === 'video') {
       setVideoEnabled(false);
       setVideoSource(null);
-
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach(track => track.stop());
         videoStreamRef.current = null;
@@ -154,7 +143,6 @@ export default function GeminiVoiceChat() {
       }
     }
 
-    // stop ongoing audio playback
     if (audioContextRef.current) {
       audioContextRef.current.close();
       audioContextRef.current = null;
@@ -170,39 +158,37 @@ export default function GeminiVoiceChat() {
     setChatMode(null);
   };
 
-  const playAudioData = async (audioData) => {
-    audioBuffer.push(audioData)
+  const playAudioData = async (audioData: Float32Array) => {
+    audioBuffer.push(audioData);
     if (!isPlaying) {
-      playNextInQueue(); // Start playback if not already playing
-      }
+      playNextInQueue();
     }
+  };
 
   const playNextInQueue = async () => {
-    if (!audioContextRef.current || audioBuffer.length == 0) {
+    if (!audioContextRef.current || audioBuffer.length === 0) {
       isPlaying = false;
       return;
     }
-
-    isPlaying = true
-    const audioData = audioBuffer.shift()
-
+    isPlaying = true;
+    const audioData = audioBuffer.shift()!;
     const buffer = audioContextRef.current.createBuffer(1, audioData.length, 24000);
     buffer.copyToChannel(audioData, 0);
-
     const source = audioContextRef.current.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContextRef.current.destination);
     source.onended = () => {
-      playNextInQueue()
-    }
+      playNextInQueue();
+    };
     source.start();
   };
 
+  // Inicia o vídeo quando habilitado
   useEffect(() => {
     if (videoEnabled && videoRef.current) {
       const startVideo = async () => {
         try {
-          let stream;
+          let stream: MediaStream;
           if (videoSource === 'camera') {
             stream = await navigator.mediaDevices.getUserMedia({
               video: { width: { ideal: 320 }, height: { ideal: 240 } }
@@ -212,33 +198,22 @@ export default function GeminiVoiceChat() {
               video: { width: { ideal: 1920 }, height: { ideal: 1080 } }
             });
           }
-          
           videoRef.current.srcObject = stream;
           videoStreamRef.current = stream;
-          
-          // Start frame capture after video is playing
           videoIntervalRef.current = setInterval(() => {
             captureAndSendFrame();
           }, 1000);
-
-        } catch (err) {
-          console.error('Video initialization error:', err);
-          setError('Failed to access camera/screen: ' + err.message);
-
-          if (videoSource === 'screen') {
-            // Reset chat mode and clean up any existing connections
-            setChatMode(null);
-            stopStream();
-          }
-
+        } catch (err: any) {
+          console.error('Erro ao iniciar vídeo:', err);
+          setError('Erro ao acessar câmera/tela: ' + err.message);
+          setChatMode(null);
+          stopStream();
           setVideoEnabled(false);
           setVideoSource(null);
         }
       };
 
       startVideo();
-
-      // Cleanup function
       return () => {
         if (videoStreamRef.current) {
           videoStreamRef.current.getTracks().forEach(track => track.stop());
@@ -252,34 +227,23 @@ export default function GeminiVoiceChat() {
     }
   }, [videoEnabled, videoSource]);
 
-  // Frame capture function
   const captureAndSendFrame = () => {
     if (!canvasRef.current || !videoRef.current || !wsRef.current) return;
-    
     const context = canvasRef.current.getContext('2d');
     if (!context) return;
-    
     canvasRef.current.width = videoRef.current.videoWidth;
     canvasRef.current.height = videoRef.current.videoHeight;
-    
     context.drawImage(videoRef.current, 0, 0);
     const base64Image = canvasRef.current.toDataURL('image/jpeg').split(',')[1];
-    
     wsRef.current.send(JSON.stringify({
       type: 'image',
       data: base64Image
     }));
   };
 
-  // Toggle video function
-  const toggleVideo = () => {
-    setVideoEnabled(!videoEnabled);
-  };
-
-  // Cleanup on unmount
+  // Cleanup ao desmontar o componente
   useEffect(() => {
     return () => {
-      stopVideo();
       stopStream();
     };
   }, []);
@@ -287,37 +251,28 @@ export default function GeminiVoiceChat() {
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="space-y-6">
-        <h1 className="text-4xl font-bold tracking-tight">Gemini 2.0 Realtime Playground ✨</h1>
+        <h1 className="text-4xl font-bold tracking-tight">NutriChat - Atendimento Nutricional em Tempo Real</h1>
         
         {error && (
           <Alert variant="destructive">
-            <AlertTitle>Error</AlertTitle>
+            <AlertTitle>Erro</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
+        {/* Não é exibido o System Prompt, pois o perfil já está definido */}
+
         <Card>
           <CardContent className="pt-6 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="system-prompt">System Prompt</Label>
-              <Textarea
-                id="system-prompt"
-                value={config.systemPrompt}
-                onChange={(e) => setConfig(prev => ({ ...prev, systemPrompt: e.target.value }))}
-                disabled={isConnected}
-                className="min-h-[100px]"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="voice-select">Voice</Label>
+              <Label htmlFor="voice-select">Voz</Label>
               <Select
                 value={config.voice}
                 onValueChange={(value) => setConfig(prev => ({ ...prev, voice: value }))}
                 disabled={isConnected}
               >
                 <SelectTrigger id="voice-select">
-                  <SelectValue placeholder="Select a voice" />
+                  <SelectValue placeholder="Selecione uma voz" />
                 </SelectTrigger>
                 <SelectContent>
                   {voices.map((voice) => (
@@ -334,10 +289,11 @@ export default function GeminiVoiceChat() {
                 id="google-search"
                 checked={config.googleSearch}
                 onCheckedChange={(checked) => 
-                  setConfig(prev => ({ ...prev, googleSearch: checked as boolean }))}
+                  setConfig(prev => ({ ...prev, googleSearch: checked as boolean }))
+                }
                 disabled={isConnected}
               />
-              <Label htmlFor="google-search">Enable Google Search</Label>
+              <Label htmlFor="google-search">Ativar busca no Google</Label>
             </div>
           </CardContent>
         </Card>
@@ -345,35 +301,33 @@ export default function GeminiVoiceChat() {
         <div className="flex gap-4">
           {!isStreaming && (
             <>
-            <Button
-              onClick={() => startStream('audio')}
-              disabled={isStreaming}
-              className="gap-2"
-          >
-            <Mic className="h-4 w-4" />
-            Start Chatting
-          </Button>
+              <Button
+                onClick={() => startStream('audio')}
+                disabled={isStreaming}
+                className="gap-2"
+              >
+                <Mic className="h-4 w-4" />
+                Iniciar Atendimento (Áudio)
+              </Button>
 
-          <Button
-            onClick={() => startStream('camera')}
-            disabled={isStreaming}
-            className="gap-2"
-          >
-            <Video className="h-4 w-4" />
-              Start Chatting with Video
-            </Button>
-          
-          <Button
-            onClick={() => startStream('screen')}
-            disabled={isStreaming}
-            className="gap-2"
-          >
-            <Monitor className="h-4 w-4" />
-              Start Chatting with Screen
-            </Button>
-          </>
-
-            
+              <Button
+                onClick={() => startStream('camera')}
+                disabled={isStreaming}
+                className="gap-2"
+              >
+                <Video className="h-4 w-4" />
+                Iniciar Atendimento (Vídeo)
+              </Button>
+              
+              <Button
+                onClick={() => startStream('screen')}
+                disabled={isStreaming}
+                className="gap-2"
+              >
+                <Monitor className="h-4 w-4" />
+                Iniciar Atendimento (Tela)
+              </Button>
+            </>
           )}
 
           {isStreaming && (
@@ -383,7 +337,7 @@ export default function GeminiVoiceChat() {
               className="gap-2"
             >
               <StopCircle className="h-4 w-4" />
-              Stop Chat
+              Encerrar Atendimento
             </Button>
           )}
         </div>
@@ -393,19 +347,18 @@ export default function GeminiVoiceChat() {
             <CardContent className="flex items-center justify-center h-24 mt-6">
               <div className="flex flex-col items-center gap-2">
                 <Mic className="h-8 w-8 text-blue-500 animate-pulse" />
-                <p className="text-gray-600">Listening...</p>
+                <p className="text-gray-600">Ouvindo...</p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {(chatMode === 'video') && (
+        {chatMode === 'video' && (
           <Card>
             <CardContent className="pt-6 space-y-4">
               <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold">Video Input</h2>
+                <h2 className="text-lg font-semibold">Entrada de Vídeo</h2>
               </div>
-              
               <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
                 <video
                   ref={videoRef}
@@ -415,7 +368,6 @@ export default function GeminiVoiceChat() {
                   width={320}
                   height={240}
                   className="w-full h-full object-contain"
-                  //style={{ transform: 'scaleX(-1)' }}
                   style={{ transform: videoSource === 'camera' ? 'scaleX(-1)' : 'none' }}
                 />
                 <canvas
@@ -432,7 +384,7 @@ export default function GeminiVoiceChat() {
         {text && (
           <Card>
             <CardContent className="pt-6">
-              <h2 className="text-lg font-semibold mb-2">Conversation:</h2>
+              <h2 className="text-lg font-semibold mb-2">Conversa:</h2>
               <pre className="whitespace-pre-wrap text-gray-700">{text}</pre>
             </CardContent>
           </Card>

@@ -281,6 +281,7 @@ def realtime_chat_interface():
 
 
 
+
 # --- Funções específicas do aplicativo ---
 def analyze_dish_image(image, google_api_key, idade, peso, altura, imc, nivel_atividade):
     text_prompt = (

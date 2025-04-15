@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Gemini Mutlimodal Playground",
-  description: "A playground for Realtime Multimodal Gemini 2.0",
+  title: "NutriChat",
+  description: "Atendimento em tempo real",
 };
 
 export default function RootLayout({
